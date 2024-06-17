@@ -1,6 +1,7 @@
 from typing import Tuple
 import torch
 
+
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     """
     Helper function to reshape frequency tensor to have the same shape as the target tensor 'x'
@@ -22,6 +23,7 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     assert freqs_cis.shape == (x.shape[1], x.shape[-1])
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(shape)
+
 
 def apply_rotary_emb(
     query: torch.Tensor,
@@ -56,20 +58,37 @@ def apply_rotary_emb(
     # and Section 3 in https://arxiv.org/abs/2104.09864.
 
     # reshape xq and xk to match the complex representation
-    query_real, query_imag = query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1)
+    query_real, query_imag = (
+        query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1)
+    )
     key_real, key_imag = key.float().reshape(key.shape[:-1] + (-1, 2)).unbind(-1)
     # This separates each query/key vector into its odd and even indices (assuming *one-indexing*).
     # query_real contains q_1, q_3, q_5, ... and query_imag contains q_2, q_4, q_6, ...
 
     # First, compute the trigonometric values in the second and fourth columns in
     # slide 22 (linked above).
+    thetas = 1.0 / torch.pow(
+        theta, (torch.arange(0, head_dim, 2, device=device) / head_dim).unsqueeze(0)
+    )
 
+    sines = torch.sin(
+        thetas * torch.arange(0, seqlen, device=device).unsqueeze(1)
+    ).unsqueeze(1)
+    sines[1::2] = 0
+    cosines = torch.cos(
+        thetas * torch.arange(0, seqlen, device=device).unsqueeze(1)
+    ).unsqueeze(1)
+    cosines[0::2] = 0
     # Then, combine these trigonometric values with the tensors query_real, query_imag,
     # key_real, and key_imag.
 
-    raise NotImplementedError
+    query_real_rotated = query_real * cosines - query_imag * sines
+    query_imag_rotated = query_real * sines + query_imag * cosines
 
-    query_out = None
-    key_out = None
-    # Return the rotary position embeddings for the query and key tensors
+    key_real_rotated = key_real * cosines - key_imag * sines
+    key_imag_rotated = key_real * sines + key_imag * cosines
+
+    query_out = query_real_rotated + query_imag_rotated
+    key_out = key_real_rotated + key_imag_rotated
+
     return query_out, key_out
